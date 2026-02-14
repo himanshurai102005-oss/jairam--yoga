@@ -3,6 +3,7 @@ const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const cors = require("cors");
 const nodemailer = require("nodemailer");
+const path = require("path");
 require("dotenv").config();
 
 const app = express();
@@ -38,61 +39,64 @@ async function sendEmail(to, subject, message) {
 // ✅ WEBHOOK (MUST BE RAW)
 // ---------------------------
 // ⚠️ This must come BEFORE express.json()
-app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    const signature = req.headers["x-razorpay-signature"];
+app.post(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+      const signature = req.headers["x-razorpay-signature"];
 
-    const expectedSignature = crypto
-      .createHmac("sha256", secret)
-      .update(req.body)
-      .digest("hex");
+      const expectedSignature = crypto
+        .createHmac("sha256", secret)
+        .update(req.body)
+        .digest("hex");
 
-    // ❌ Invalid webhook
-    if (expectedSignature !== signature) {
-      return res.status(400).send("Invalid signature ❌");
+      // ❌ Invalid webhook
+      if (expectedSignature !== signature) {
+        return res.status(400).send("Invalid signature ❌");
+      }
+
+      const payload = JSON.parse(req.body.toString());
+      const event = payload.event;
+
+      const payment = payload.payload.payment?.entity;
+      const amount = (payment?.amount || 0) / 100;
+
+      // 👇 User details frontend se "notes" me aayengi
+      const notes = payment?.notes || {};
+      const name = notes.customer_name || "Customer";
+      const email = notes.customer_email || payment?.email;
+      const phone = notes.customer_phone || payment?.contact;
+
+      console.log("Webhook Event:", event);
+      console.log("Customer:", name, email, phone);
+
+      // ✅ SUCCESS
+      if (event === "payment.captured" || event === "payment.authorized") {
+        await sendEmail(
+          email,
+          "Payment Successful ✅ (Jairam Yoga)",
+          `Hi ${name},\n\nYour payment of ₹${amount} was successful.\n\nThank you for joining Jairam Yoga Workshop.\n\n- Team Jairam Yoga`
+        );
+      }
+
+      // ❌ FAILED
+      if (event === "payment.failed") {
+        await sendEmail(
+          email,
+          "Payment Failed ❌ (Jairam Yoga)",
+          `Hi ${name},\n\nYour payment of ₹${amount} failed.\n\nPlease try again.\n\n- Team Jairam Yoga`
+        );
+      }
+
+      res.json({ status: "ok" });
+    } catch (err) {
+      console.log("Webhook Error:", err.message);
+      res.status(500).send("Webhook error");
     }
-
-    const payload = JSON.parse(req.body.toString());
-    const event = payload.event;
-
-    const payment = payload.payload.payment?.entity;
-
-    const amount = (payment?.amount || 0) / 100;
-
-    // 👇 User details frontend se "notes" me aayengi
-    const notes = payment?.notes || {};
-    const name = notes.customer_name || "Customer";
-    const email = notes.customer_email || payment?.email;
-    const phone = notes.customer_phone || payment?.contact;
-
-    console.log("Webhook Event:", event);
-    console.log("Customer:", name, email, phone);
-
-    // ✅ SUCCESS (authorized OR captured)
-    if (event === "payment.captured" || event === "payment.authorized") {
-      await sendEmail(
-        email,
-        "Payment Successful ✅ (Jairam Yoga)",
-        `Hi ${name},\n\nYour payment of ₹${amount} was successful.\n\nThank you for joining Jairam Yoga Workshop.\n\n- Team Jairam Yoga`
-      );
-    }
-
-    // ❌ FAILED
-    if (event === "payment.failed") {
-      await sendEmail(
-        email,
-        "Payment Failed ❌ (Jairam Yoga)",
-        `Hi ${name},\n\nYour payment of ₹${amount} failed.\n\nPlease try again.\n\n- Team Jairam Yoga`
-      );
-    }
-
-    res.json({ status: "ok" });
-  } catch (err) {
-    console.log("Webhook Error:", err.message);
-    res.status(500).send("Webhook error");
   }
-});
+);
 
 // ---------------------------
 // Normal middleware AFTER webhook
@@ -100,9 +104,12 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 app.use(cors());
 app.use(express.json());
 
-// ✅ Test route
+// ✅ Static files serve (images, css, etc.)
+app.use(express.static(__dirname));
+
+// ✅ Homepage = phase1.html
 app.get("/", (req, res) => {
-  res.send("Backend Running ✅");
+  res.sendFile(path.join(__dirname, "phase1.html"));
 });
 
 // ✅ Create Order (₹1)
@@ -114,19 +121,17 @@ app.post("/create-order", async (req, res) => {
       receipt: "rcpt_" + Date.now(),
     });
 
-res.json({
-  success: true,
-  orderId: order.id,
-  amount: order.amount,
-  currency: order.currency,
-  key: process.env.RAZORPAY_KEY_ID,
-});
-
-
+    res.json({
+      success: true,
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      key: process.env.RAZORPAY_KEY_ID,
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
