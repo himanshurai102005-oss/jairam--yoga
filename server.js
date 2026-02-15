@@ -14,7 +14,7 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// ✅ Email setup (Gmail App Password)
+// ✅ Email setup
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -23,12 +23,11 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// ✅ Send Email function
 async function sendEmail(to, subject, message) {
   if (!to) return;
 
   await transporter.sendMail({
-    from: process.env.EMAIL_USER,
+    from: `"Jairam Yoga" <${process.env.EMAIL_USER}>`,
     to,
     subject,
     text: message,
@@ -36,9 +35,8 @@ async function sendEmail(to, subject, message) {
 }
 
 // ---------------------------
-// ✅ WEBHOOK (MUST BE RAW)
+// ✅ WEBHOOK (RAW BODY REQUIRED)
 // ---------------------------
-// ⚠️ This must come BEFORE express.json()
 app.post(
   "/webhook",
   express.raw({ type: "application/json" }),
@@ -52,8 +50,8 @@ app.post(
         .update(req.body)
         .digest("hex");
 
-      // ❌ Invalid webhook
       if (expectedSignature !== signature) {
+        console.log("❌ Invalid signature");
         return res.status(400).send("Invalid signature ❌");
       }
 
@@ -63,21 +61,20 @@ app.post(
       const payment = payload.payload.payment?.entity;
       const amount = (payment?.amount || 0) / 100;
 
-      // 👇 User details frontend se "notes" me aayengi
       const notes = payment?.notes || {};
       const name = notes.customer_name || "Customer";
       const email = notes.customer_email || payment?.email;
       const phone = notes.customer_phone || payment?.contact;
 
-      console.log("Webhook Event:", event);
+      console.log("✅ Webhook Event:", event);
       console.log("Customer:", name, email, phone);
 
       // ✅ SUCCESS
-      if (event === "payment.captured" || event === "payment.authorized") {
+      if (event === "payment.captured") {
         await sendEmail(
           email,
           "Payment Successful ✅ (Jairam Yoga)",
-          `Hi ${name},\n\nYour payment of ₹${amount} was successful.\n\nThank you for joining Jairam Yoga Workshop.\n\n- Team Jairam Yoga`
+          `Hi ${name},\n\nYour payment of ₹${amount} was successful.\n\nYou are registered for Jairam Yoga Workshop.\n\nThank you!\n\n- Team Jairam Yoga`
         );
       }
 
@@ -104,21 +101,31 @@ app.post(
 app.use(cors());
 app.use(express.json());
 
-// ✅ Static files serve (images, css, etc.)
-app.use(express.static(__dirname));
+// ---------------------------
+// Serve frontend
+// ---------------------------
+app.use(express.static(path.join(__dirname)));
 
-// ✅ Homepage = phase1.html
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "phase1.html"));
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// ✅ Create Order (₹1)
+// ---------------------------
+// Create Order
+// ---------------------------
 app.post("/create-order", async (req, res) => {
   try {
+    const { name, email, phone } = req.body;
+
     const order = await razorpay.orders.create({
-      amount: 100, // ₹1
+      amount: 100,
       currency: "INR",
       receipt: "rcpt_" + Date.now(),
+      notes: {
+        customer_name: name,
+        customer_email: email,
+        customer_phone: phone,
+      },
     });
 
     res.json({
