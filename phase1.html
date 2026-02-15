@@ -171,7 +171,7 @@ setInterval(()=>{
   },500);
 },3000);
 
-document.getElementById("joinForm").addEventListener("submit", function(e){
+document.getElementById("joinForm").addEventListener("submit", async function(e){
   e.preventDefault();
 
   let name=document.getElementById("name");
@@ -190,26 +190,38 @@ document.getElementById("joinForm").addEventListener("submit", function(e){
 
   if(!valid) return;
 
+  // ✅ BACKEND SE ORDER CREATE
+  let res = await fetch("/create-order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: name.value,
+      email: email.value,
+      phone: phone.value
+    })
+  });
+
+  let data = await res.json();
+
+  if(!data.success){
+    alert("Server error ❌ Order create nahi hua");
+    return;
+  }
+
+  // ✅ RAZORPAY OPEN
   var options = {
-    "key": "rzp_test_SE8kXY7RGvJRg4",
-    "amount": 100,   // ₹1 = 100 paise
-    
-    "currency": "INR",
+    "key": data.key,
+    "amount": data.amount,
+    "currency": data.currency,
     "name": "Jairam Yoga",
     "description": "Workshop Registration",
     "image": "https://razorpay.com/favicon.png",
+    "order_id": data.orderId,
 
     "prefill": {
       "name": name.value,
       "email": email.value,
       "contact": phone.value
-    },
-
-    // ✅ Notes: backend webhook me data pick kar lega
-    "notes": {
-      "customer_name": name.value,
-      "customer_email": email.value,
-      "customer_phone": phone.value
     },
 
     "handler": function (response) {
@@ -233,9 +245,8 @@ document.getElementById("joinForm").addEventListener("submit", function(e){
   var rzp = new Razorpay(options);
 
   // ❌ Fail case (frontend)
-  rzp.on("payment.failed", function (response) {
+  rzp.on("payment.failed", function () {
     alert("Payment Failed ❌ Please try again.");
-    console.log("Payment Failed Response:", response);
   });
 
   rzp.open();
