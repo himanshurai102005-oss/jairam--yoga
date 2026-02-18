@@ -14,117 +14,101 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// ✅ Nodemailer (Render safe config)
+// ---------------------------
+// ✅ BREVO SMTP Setup
+// ---------------------------
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: process.env.BREVO_SMTP_HOST, // smtp-relay.brevo.com
+  port: Number(process.env.BREVO_SMTP_PORT || 587),
+  secure: false, // port 587 = false
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: process.env.BREVO_SMTP_USER, // Brevo SMTP login
+    pass: process.env.BREVO_SMTP_PASS, // Brevo SMTP key
   },
-
-  // 🔥 IMPORTANT (Render timeout fix)
-  pool: true,
-  maxConnections: 1,
-  maxMessages: 50,
-
-  // ⏱ Timeouts
-  connectionTimeout: 20000, // 20 sec
-  greetingTimeout: 20000,
-  socketTimeout: 20000,
 });
 
 // ✅ Send Email function
 async function sendEmail(to, subject, message) {
-  if (!to) {
-    console.log("❌ Email missing, cannot send");
-    return;
-  }
+  if (!to) return;
 
   try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+    const info = await transporter.sendMail({
+      from: `"Jairam Yoga" <${process.env.BREVO_SMTP_USER}>`,
       to,
       subject,
       text: message,
     });
 
-    console.log("✅ Email Sent:", to);
+    console.log("✅ Email Sent:", info.messageId);
   } catch (err) {
     console.log("❌ Email Send Failed:", err.message);
   }
 }
 
 // ---------------------------
-// ✅ WEBHOOK (RAW BODY)
+// ✅ WEBHOOK (MUST BE RAW)
 // ---------------------------
-app.post(
-  "/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    console.log("WEBHOOK HIT ✅");
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  console.log("WEBHOOK HIT ✅");
 
-    try {
-      const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-      if (!secret) {
-        console.log("❌ RAZORPAY_WEBHOOK_SECRET missing in ENV");
-        return res.status(500).send("Webhook secret missing");
-      }
-
-      const signature = req.headers["x-razorpay-signature"];
-
-      const expectedSignature = crypto
-        .createHmac("sha256", secret)
-        .update(req.body)
-        .digest("hex");
-
-      // ❌ Invalid signature
-      if (expectedSignature !== signature) {
-        console.log("❌ Invalid Signature");
-        return res.status(400).send("Invalid signature ❌");
-      }
-
-      const payload = JSON.parse(req.body.toString());
-      const event = payload.event;
-
-      const payment = payload.payload.payment?.entity;
-      const amount = (payment?.amount || 0) / 100;
-
-      const notes = payment?.notes || {};
-      const name = notes.customer_name || "Customer";
-      const email = notes.customer_email || payment?.email;
-      const phone = notes.customer_phone || payment?.contact;
-
-      console.log("Webhook Event:", event);
-      console.log("Customer:", name, email, phone);
-
-      // ✅ IMPORTANT: Razorpay ko instant response
-      res.json({ status: "ok" });
-
-      // ✅ Background me email bhejna (timeout fix)
-      setTimeout(async () => {
-        if (event === "payment.captured" || event === "payment.authorized") {
-          await sendEmail(
-            email,
-            "Payment Successful ✅ (Jairam Yoga)",
-            `Hi ${name},\n\nYour payment of ₹${amount} was successful.\n\nThank you for joining Jairam Yoga Workshop.\n\n- Team Jairam Yoga`
-          );
-        }
-
-        if (event === "payment.failed") {
-          await sendEmail(
-            email,
-            "Payment Failed ❌ (Jairam Yoga)",
-            `Hi ${name},\n\nYour payment of ₹${amount} failed.\n\nPlease try again.\n\n- Team Jairam Yoga`
-          );
-        }
-      }, 0);
-    } catch (err) {
-      console.log("Webhook Error:", err.message);
-      return res.status(500).send("Webhook error");
+    if (!secret) {
+      console.log("❌ RAZORPAY_WEBHOOK_SECRET missing in ENV");
+      return res.status(500).send("Webhook secret missing");
     }
+
+    const signature = req.headers["x-razorpay-signature"];
+
+    const expectedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(req.body)
+      .digest("hex");
+
+    if (expectedSignature !== signature) {
+      console.log("❌ Invalid Signature");
+      return res.status(400).send("Invalid signature ❌");
+    }
+
+    const payload = JSON.parse(req.body.toString());
+    const event = payload.event;
+
+    const payment = payload.payload.payment?.entity;
+    const amount = (payment?.amount || 0) / 100;
+
+    const notes = payment?.notes || {};
+    const name = notes.customer_name || "Customer";
+    const email = notes.customer_email || payment?.email;
+    const phone = notes.customer_phone || payment?.contact;
+
+    console.log("Webhook Event:", event);
+    console.log("Customer:", name, email, phone);
+
+    // ✅ SUCCESS
+    if (event === "payment.captured" || event === "payment.authorized") {
+      await sendEmail(
+        email,
+        "Payment Successful ✅ (Jairam Yoga)",
+        `Hi ${name},\n\nYour payment of ₹${amount} was successful.\n\nThank you for joining Jairam Yoga Workshop.\n\n- Team Jairam Yoga`
+      );
+    }
+
+    // ❌ FAILED
+    if (event === "payment.failed") {
+      await sendEmail(
+        email,
+        "Payment Failed ❌ (Jairam Yoga)",
+        `Hi ${name},\n\nYour payment of ₹${amount} failed.\n\nPlease try again.\n\n- Team Jairam Yoga`
+      );
+    }
+
+    res.json({ status: "ok" });
+  } catch (err) {
+    console.log("Webhook Error:", err.message);
+    res.status(500).send("Webhook error");
   }
-);
+});
 
 // ---------------------------
 // Normal middleware AFTER webhook
@@ -135,12 +119,12 @@ app.use(express.json());
 // ✅ Static files serve
 app.use(express.static(__dirname));
 
-// ✅ Homepage
+// ✅ Homepage = phase1.html
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "phase1.html"));
 });
 
-// ✅ Create Order
+// ✅ Create Order (₹1)
 app.post("/create-order", async (req, res) => {
   try {
     const order = await razorpay.orders.create({
