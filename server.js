@@ -14,7 +14,7 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// ✅ Email setup
+// ✅ Email setup (Gmail App Password)
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -23,11 +23,12 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// ✅ Send Email function
 async function sendEmail(to, subject, message) {
   if (!to) return;
 
   await transporter.sendMail({
-    from: `"Jairam Yoga" <${process.env.EMAIL_USER}>`,
+    from: process.env.EMAIL_USER,
     to,
     subject,
     text: message,
@@ -35,65 +36,78 @@ async function sendEmail(to, subject, message) {
 }
 
 // ---------------------------
-// ✅ WEBHOOK (RAW BODY REQUIRED)
+// ✅ WEBHOOK (MUST BE RAW)
 // ---------------------------
-app.post(
-  "/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    try {
-      const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-      const signature = req.headers["x-razorpay-signature"];
+// ⚠️ This must come BEFORE express.json()
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  console.log("WEBHOOK HIT ✅"); // ✅ Confirm webhook hit
 
-      const expectedSignature = crypto
-        .createHmac("sha256", secret)
-        .update(req.body)
-        .digest("hex");
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-      if (expectedSignature !== signature) {
-        console.log("❌ Invalid signature");
-        return res.status(400).send("Invalid signature ❌");
-      }
-
-      const payload = JSON.parse(req.body.toString());
-      const event = payload.event;
-
-      const payment = payload.payload.payment?.entity;
-      const amount = (payment?.amount || 0) / 100;
-
-      const notes = payment?.notes || {};
-      const name = notes.customer_name || "Customer";
-      const email = notes.customer_email || payment?.email;
-      const phone = notes.customer_phone || payment?.contact;
-
-      console.log("✅ Webhook Event:", event);
-      console.log("Customer:", name, email, phone);
-
-      // ✅ SUCCESS
-      if (event === "payment.captured") {
-        await sendEmail(
-          email,
-          "Payment Successful ✅ (Jairam Yoga)",
-          `Hi ${name},\n\nYour payment of ₹${amount} was successful.\n\nYou are registered for Jairam Yoga Workshop.\n\nThank you!\n\n- Team Jairam Yoga`
-        );
-      }
-
-      // ❌ FAILED
-      if (event === "payment.failed") {
-        await sendEmail(
-          email,
-          "Payment Failed ❌ (Jairam Yoga)",
-          `Hi ${name},\n\nYour payment of ₹${amount} failed.\n\nPlease try again.\n\n- Team Jairam Yoga`
-        );
-      }
-
-      res.json({ status: "ok" });
-    } catch (err) {
-      console.log("Webhook Error:", err.message);
-      res.status(500).send("Webhook error");
+    if (!secret) {
+      console.log("❌ RAZORPAY_WEBHOOK_SECRET missing in ENV");
+      return res.status(500).send("Webhook secret missing");
     }
+
+    const signature = req.headers["x-razorpay-signature"];
+
+    const expectedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(req.body)
+      .digest("hex");
+
+    // ❌ Invalid webhook
+    if (expectedSignature !== signature) {
+      console.log("❌ Invalid Signature");
+      console.log("Expected:", expectedSignature);
+      console.log("Received:", signature);
+      return res.status(400).send("Invalid signature ❌");
+    }
+
+    const payload = JSON.parse(req.body.toString());
+    const event = payload.event;
+
+    const payment = payload.payload.payment?.entity;
+    const amount = (payment?.amount || 0) / 100;
+
+    // 👇 User details frontend se "notes" me aayengi
+    const notes = payment?.notes || {};
+    const name = notes.customer_name || "Customer";
+    const email = notes.customer_email || payment?.email;
+    const phone = notes.customer_phone || payment?.contact;
+
+    console.log("Webhook Event:", event);
+    console.log("Customer:", name, email, phone);
+
+    // ✅ SUCCESS
+    if (event === "payment.captured" || event === "payment.authorized") {
+      await sendEmail(
+        email,
+        "Payment Successful ✅ (Jairam Yoga)",
+        `Hi ${name},\n\nYour payment of ₹${amount} was successful.\n\nThank you for joining Jairam Yoga Workshop.\n\n- Team Jairam Yoga`
+      );
+
+      console.log("✅ Success email sent to:", email);
+    }
+
+    // ❌ FAILED
+    if (event === "payment.failed") {
+      await sendEmail(
+        email,
+        "Payment Failed ❌ (Jairam Yoga)",
+        `Hi ${name},\n\nYour payment of ₹${amount} failed.\n\nPlease try again.\n\n- Team Jairam Yoga`
+      );
+
+      console.log("⚠️ Failed email sent to:", email);
+    }
+
+    res.json({ status: "ok" });
+  } catch (err) {
+    console.log("Webhook Error:", err.message);
+    res.status(500).send("Webhook error");
   }
-);
+});
 
 // ---------------------------
 // Normal middleware AFTER webhook
@@ -101,31 +115,21 @@ app.post(
 app.use(cors());
 app.use(express.json());
 
-// ---------------------------
-// Serve frontend
-// ---------------------------
-app.use(express.static(path.join(__dirname)));
+// ✅ Static files serve (images, css, etc.)
+app.use(express.static(__dirname));
 
+// ✅ Homepage = phase1.html
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+  res.sendFile(path.join(__dirname, "phase1.html"));
 });
 
-// ---------------------------
-// Create Order
-// ---------------------------
+// ✅ Create Order (₹1)
 app.post("/create-order", async (req, res) => {
   try {
-    const { name, email, phone } = req.body;
-
     const order = await razorpay.orders.create({
-      amount: 100,
+      amount: 100, // ₹1
       currency: "INR",
       receipt: "rcpt_" + Date.now(),
-      notes: {
-        customer_name: name,
-        customer_email: email,
-        customer_phone: phone,
-      },
     });
 
     res.json({
