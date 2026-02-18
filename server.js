@@ -147,3 +147,19 @@ app.post("/create-order", async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.get("/test-mail", async (req, res) => {
+  try {
+    await sendEmail(
+      "YOUR_EMAIL@gmail.com",
+      "Test Mail from Render ✅",
+      "Bhai agar ye mail aa gayi to SMTP working hai 🔥"
+    );
+
+    res.send("Mail sent ✅");
+  } catch (err) {
+    console.log("❌ Email Send Failed:", err.message);
+    res.status(500).send("Mail failed ❌");
+  }
+});
+
+
