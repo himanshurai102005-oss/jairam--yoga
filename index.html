@@ -61,10 +61,24 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;color:#0f172a;}
 
 .trust{text-align:center;margin:50px 0 30px;font-weight:600;color:var(--red);}
 
-.review-section{background:#fff;padding:40px;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.08);}
-.review-slider{max-width:500px;margin:auto;}
-.review-card{border-radius:16px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,.15);}
-.review-card img{width:100%;display:block;transition:opacity .6s ease,transform .6s ease;}
+.review-slider{
+  max-width:750px;   /* ⬅️ pehle 500 tha, ab bada */
+  margin:auto;
+}
+
+.review-card{
+  border-radius:20px;
+  overflow:hidden;
+  box-shadow:0 12px 30px rgba(0,0,0,.18);
+}
+
+.review-card img{
+  width:100%;
+  height:auto;
+  display:block;
+  transition:opacity .6s ease,transform .6s ease;
+}
+
 
 .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-top:40px;}
 .info-box{background:#f1f5f9;padding:20px;border-radius:14px;}
@@ -255,4 +269,5 @@ document.getElementById("joinForm").addEventListener("submit", async function(e)
 
 </body>
 </html>
+
 
